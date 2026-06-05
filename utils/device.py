@@ -10,6 +10,26 @@ def get_default_device() -> torch.device:
     return torch.device("cpu")
 
 
+def resolve_device(name: str) -> torch.device:
+    """
+    Resolve a training device string.
+
+    - cpu: stable default for small models on Mac
+    - mps: Apple GPU (faster, but some ops can be unstable)
+    - auto: mps if available else cpu
+    """
+    key = name.lower()
+    if key == "cpu":
+        return torch.device("cpu")
+    if key == "mps":
+        if not torch.backends.mps.is_available():
+            raise RuntimeError("MPS requested but not available on this machine")
+        return torch.device("mps")
+    if key == "auto":
+        return get_default_device()
+    raise ValueError(f"unknown device: {name!r} (expected cpu, mps, or auto)")
+
+
 def device_summary() -> dict[str, object]:
     return {
         "torch_version": torch.__version__,

@@ -41,7 +41,7 @@ def main() -> None:
     print()
     print("total params:", total_params)
 
-    x = torch.randn(2, 4, device=device)
+    x = torch.randn(10, 4, device=device)
     y = model(x)
     print("x shape:", tuple(x.shape))
     print("y shape:", tuple(y.shape))
