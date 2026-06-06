@@ -1,0 +1,4 @@
+# Install on Linux machine with NVIDIA GPU + recent PyTorch:
+#   pip install triton
+#
+# Not available on macOS via pip (no official wheel).

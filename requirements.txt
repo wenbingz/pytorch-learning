@@ -1,4 +1,5 @@
 torch
 torchvision
 torchaudio
+importlib_metadata
 
