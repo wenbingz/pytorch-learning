@@ -4,6 +4,9 @@ from tokenizer import CharTokenizer
 import argparse
 from typing import Tuple, Union  # Add this import
 import torch.nn.functional as F
+from general_tokenizer import GeneralTokenizer
+from word_tokenizer import WordTokenizer
+
 
 
 class SelfAttentionHead(nn.Module):
@@ -79,18 +82,27 @@ class SimpleTransformer(nn.Module):
         loss = None
         if target is not None:
             batch, time, vocab = logits.shape
-            target = target.view(batch * time)
-            logits = logits.view(batch * time, vocab)
-            loss = F.cross_entropy(logits, target)
+            loss = F.cross_entropy(logits.view(batch * time, vocab), target.view(batch * time))
         return logits, loss
 
-    def __sample_next__(self, x: torch.Tensor) -> torch.Tensor:
-        logits = self.forward(x, None)
-        probs = F.softmax(logits, dim=-1)
-        next_token_id = torch.multinomial(probs, num_samples=1)
-        return next_token_id   
+    def __sample_next__(self, logits: torch.Tensor) -> torch.Tensor:
+        probs = F.softmax(logits / 0.8, dim=-1)
+        next_token_id = torch.multinomial(probs, num_samples=1).squeeze(-1)
+        return next_token_id
+    
+    def generate(self, previous: torch.Tensor, block_size: int, max_len: int) -> torch.Tensor:
+        with torch.no_grad():
+            if previous.dim() == 1:
+                previous = previous.unsqueeze(0)   # (T,) → (1, T)
+            for i in range(max_len - previous.shape[1]):
+                previous = previous[:, -block_size:]
+                logits, _ = self.forward(previous, None)
+                previous = torch.cat([previous, self.__sample_next__(logits[:,-1,:]).unsqueeze(1)], dim=1)
+        return previous
     
 def build_data(data: torch.Tensor, block_size: int, batch_size: int, device: torch.device) -> torch.Tensor:
+    if data.shape[0] < block_size + 1:
+        raise ValueError(f"block_size {block_size} is greater than data size {data.shape[0]}")
     max_start = data.shape[0] - block_size - 1
     starts = torch.randint(0, max_start + 1, (batch_size,), device=data.device)
     x = torch.stack([data[i:i + block_size] for i in starts])
@@ -115,26 +127,17 @@ def train_model(data: torch.Tensor, model: SimpleTransformer, block_size: int, b
 
     
 
-#  def generate(model: SimpleTransformer, data: torch.Tensor, block_size: int, cp_path: str):
-#     model.load_state_dict(torch.load(cp_path))
-#     model.
+def generate(model: SimpleTransformer, block_size: int, previous: torch.Tensor, max_len: int, cp_path: str) -> torch.Tensor:
+    model.load_state_dict(torch.load(cp_path, map_location=previous.device))
+    model.to(device=previous.device)
+    model.eval()
+    previous = previous.to(device=device)
+    generated = model.generate(previous, block_size, max_len)
+    return generated
         
 
 
 
-    # for epoch in range(100):
-    #     model.train()
-    #     loss_meter = AverageMeter()
-    #     acc_meter = AverageMeter()
-    #     for xb, yb in data:
-    #         xb, yb = _move_to_device((xb, yb), device)
-    #         logits, loss = model(xb, yb)
-    #         loss.backward()
-    #         optimizer.step()
-    #         optimizer.zero_grad(set_to_none=True)
-    #         loss_meter.update(loss.item(), n=xb.shape[0])
-    #         acc_meter.update(accuracy_top1(logits, yb), n=xb.shape[0])
-    #     print(f"Epoch {epoch}, Loss: {loss_meter.avg:.4f}, Acc: {acc_meter.avg:.4f}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -142,8 +145,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--train", action="store_true", help="Train the model.")
     parser.add_argument("--generate", action="store_true", help="generate with query")
     parser.add_argument("--steps", type=int, default=50)
+    parser.add_argument("--tokenizer_name", type=str, default="char")
     parser.add_argument("--prompt", type=str, default="")
     return parser.parse_args()
+
+def get_tokenizer(path: str, reload: bool = False, tokenizer_name: str = "char") -> GeneralTokenizer:
+    if tokenizer_name == "char":
+        return CharTokenizer(path, reload)
+    elif tokenizer_name == "word":
+        return WordTokenizer(path, reload)
+    else:
+        raise ValueError(f"tokenizer_name {tokenizer_name} is not supported")
 
 if __name__ == "__main__":
     args = parse_args()
@@ -151,7 +163,7 @@ if __name__ == "__main__":
     cp_path = "data/transformer_model.cp"
     with open(path, "r") as f:
         text = f.read()
-    tokenizer = CharTokenizer(text)
+    tokenizer = get_tokenizer(path, tokenizer_name=args.tokenizer_name, reload=False)
     embeding_dim = 512
     block_size = 256
     batch_size = 64
@@ -164,7 +176,8 @@ if __name__ == "__main__":
     if args.train:
         train_model(data, model, block_size, batch_size, args.steps, cp_path)
     elif args.generate:
-        print("not supported")
+        generated = generate(model, block_size, torch.tensor(tokenizer.encode(args.prompt), dtype=torch.long).to(device), 100, cp_path)
+        print(tokenizer.decode(generated.squeeze().tolist()))
     else:
         print("not supported")
     
