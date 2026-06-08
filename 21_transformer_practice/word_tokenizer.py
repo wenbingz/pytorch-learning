@@ -9,7 +9,7 @@ BPE_PATH = "data/bpe_tokenizer.json"
 
 
 class WordTokenizer:
-    def __init__(self, corpus_path: str, reload: bool = False) -> None:
+    def __init__(self, corpus_path: list[str], reload: bool = False) -> None:
         # reload=True  → load data/bpe_tokenizer.json
         # reload=False → train BPE on corpus and save
         if reload:
@@ -30,7 +30,7 @@ class WordTokenizer:
             special_tokens=["<unk>", "<pad>", "<bos>", "<eos>"],
             min_frequency=2,
         )
-        tokenizer.train([corpus_path], trainer)
+        tokenizer.train(corpus_path, trainer)
         os.makedirs(os.path.dirname(BPE_PATH) or ".", exist_ok=True)
         tokenizer.save(BPE_PATH)
         self.tokenizer = tokenizer

@@ -155,11 +155,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--generate", action="store_true", help="generate with query")
     parser.add_argument("--steps", type=int, default=50)
     parser.add_argument("--tokenizer_name", type=str, default="char")
-    parser.add_argument(
-        "--reload-tokenizer",
-        action="store_true",
-        help="Load saved BPE instead of retraining (optional on --train).",
-    )
     parser.add_argument("--prompt", type=str, default="")
     return parser.parse_args()
 
@@ -173,13 +168,14 @@ def get_tokenizer(path: str, reload: bool = False, tokenizer_name: str = "char")
 
 if __name__ == "__main__":
     args = parse_args()
-    path = "data/transformer.txt"
+    path = ["data/transformer.txt", "data/book5.txt", "data/book4.txt", "data/book3.txt", "data/book2.txt", "data/book1.txt"]
     cp_path = "data/transformer_model.cp"
-    with open(path, "r") as f:
-        text = f.read()
-    # word BPE: train → fit new tokenizer; generate → load saved json
-    load_saved_bpe = args.generate or args.reload_tokenizer
-    tokenizer = get_tokenizer(path, tokenizer_name=args.tokenizer_name, reload=load_saved_bpe)
+    text = ""
+    for p in path:
+        with open(p, "r") as f:
+            text += f.read()
+    print(len(text))
+    tokenizer = get_tokenizer(path, tokenizer_name=args.tokenizer_name, reload=True)
     embeding_dim = 512
     block_size = 256
     batch_size = 64
@@ -192,7 +188,7 @@ if __name__ == "__main__":
     if args.train:
         train_model(data, model, block_size, batch_size, args.steps, cp_path)
     elif args.generate:
-        generated = generate(model, block_size, torch.tensor(tokenizer.encode(args.prompt), dtype=torch.long).to(device), 100, cp_path)
+        generated = generate(model, block_size, torch.tensor(tokenizer.encode(args.prompt), dtype=torch.long).to(device), block_size, cp_path)
         print(tokenizer.decode(generated.squeeze().tolist()))
     else:
         print("not supported")
