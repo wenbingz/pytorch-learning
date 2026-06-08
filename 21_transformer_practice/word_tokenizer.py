@@ -1,20 +1,30 @@
 from __future__ import annotations
 
 import os
+from typing import Iterable
 
-from tokenizers import Tokenizer, models, pre_tokenizers, trainers
+from tokenizers import Tokenizer, decoders, models, pre_tokenizers, trainers
 
 BPE_PATH = "data/bpe_tokenizer.json"
 
 
 class WordTokenizer:
     def __init__(self, corpus_path: str, reload: bool = False) -> None:
-        if reload and os.path.isfile(BPE_PATH):
+        # reload=True  → load data/bpe_tokenizer.json
+        # reload=False → train BPE on corpus and save
+        if reload:
+            if not os.path.isfile(BPE_PATH):
+                raise FileNotFoundError(
+                    f"{BPE_PATH} not found; run --train --tokenizer_name word first"
+                )
             self.tokenizer = Tokenizer.from_file(BPE_PATH)
+            if self.tokenizer.decoder is None:
+                self.tokenizer.decoder = decoders.ByteLevel()
             return
 
         tokenizer = Tokenizer(models.BPE(unk_token="<unk>"))
         tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False)
+        tokenizer.decoder = decoders.ByteLevel()
         trainer = trainers.BpeTrainer(
             vocab_size=8000,
             special_tokens=["<unk>", "<pad>", "<bos>", "<eos>"],
@@ -31,5 +41,9 @@ class WordTokenizer:
     def encode(self, text: str) -> list[int]:
         return self.tokenizer.encode(text).ids
 
-    def decode(self, ids: list[int]) -> str:
-        return self.tokenizer.decode(ids)
+    def decode(self, ids: Iterable[int]) -> str:
+        if hasattr(ids, "view"):
+            ids = ids.view(-1).tolist()
+        else:
+            ids = list(ids)
+        return self.tokenizer.decode(ids, skip_special_tokens=True)

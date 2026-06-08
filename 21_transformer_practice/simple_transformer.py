@@ -2,6 +2,8 @@ import torch
 from torch import nn
 from tokenizer import CharTokenizer
 import argparse
+import csv
+from pathlib import Path
 from typing import Tuple, Union  # Add this import
 import torch.nn.functional as F
 from general_tokenizer import GeneralTokenizer
@@ -111,7 +113,9 @@ def build_data(data: torch.Tensor, block_size: int, batch_size: int, device: tor
     
     
     
-def train_model(data: torch.Tensor, model: SimpleTransformer, block_size: int, batch_size: int, steps: int, cp_path: str):
+def train_model(data: torch.Tensor, model: SimpleTransformer, block_size: int, batch_size: int, steps: int, cp_path: str, log_path: str = "runs/transformer/loss.csv"):
+    Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+    history = []
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
@@ -119,11 +123,16 @@ def train_model(data: torch.Tensor, model: SimpleTransformer, block_size: int, b
         xb, yb = build_data(data, block_size, batch_size, device)
         logits, loss = model(xb, yb)
         print(f"step {step}, loss: {loss.item()}")
+        history.append({"step": step, "loss": loss.item()})
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()
     torch.save(model.state_dict(), cp_path)
     print(f"model saved to {cp_path}")
+    with open(log_path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["step", "loss"])
+        writer.writeheader()
+        writer.writerows(history)
 
     
 
@@ -146,6 +155,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--generate", action="store_true", help="generate with query")
     parser.add_argument("--steps", type=int, default=50)
     parser.add_argument("--tokenizer_name", type=str, default="char")
+    parser.add_argument(
+        "--reload-tokenizer",
+        action="store_true",
+        help="Load saved BPE instead of retraining (optional on --train).",
+    )
     parser.add_argument("--prompt", type=str, default="")
     return parser.parse_args()
 
@@ -163,7 +177,9 @@ if __name__ == "__main__":
     cp_path = "data/transformer_model.cp"
     with open(path, "r") as f:
         text = f.read()
-    tokenizer = get_tokenizer(path, tokenizer_name=args.tokenizer_name, reload=False)
+    # word BPE: train → fit new tokenizer; generate → load saved json
+    load_saved_bpe = args.generate or args.reload_tokenizer
+    tokenizer = get_tokenizer(path, tokenizer_name=args.tokenizer_name, reload=load_saved_bpe)
     embeding_dim = 512
     block_size = 256
     batch_size = 64
